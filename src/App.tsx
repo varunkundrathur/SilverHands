@@ -267,11 +267,13 @@ export default function App() {
               setActivePortal("provider");
             }}
             currentUserId={currentUser?.id}
+            currentUser={currentUser}
             largeTextMode={largeTextMode}
             onUpdateUserLocation={setUserLocation}
             events={events}
             onOpenMeetupModal={() => handleOpenMeetup()}
             onSelectEvent={(event) => handleOpenMeetup(event.id)}
+            onOpenMessages={() => setIsMessagesModalOpen(true)}
           />
         )}
       </main>

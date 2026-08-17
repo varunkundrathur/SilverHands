@@ -138,11 +138,15 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
 
   const activeConversation = conversations.find((c) => c.id === selectedConversationId);
 
+  const isMeProvider = currentUser.role === "provider";
+
   // Filter conversations
   const filteredConversations = conversations.filter((conv) => {
+    const otherPartyName = isMeProvider ? conv.customerName : conv.providerName;
     // Search query
     const matchSearch =
       !searchQuery.trim() ||
+      otherPartyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       conv.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       conv.providerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (conv.listingTitle && conv.listingTitle.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -159,7 +163,7 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
     return true;
   });
 
-  // Calculate distance to client
+  // Calculate distance to client/artisan
   const clientDistance =
     currentUser.location && activeConversation?.customerLocation
       ? calculateDistance(
@@ -346,29 +350,52 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
     });
   };
 
-  // Senior-Friendly One-Click Quick Replies
-  const quickReplies = [
-    {
-      label: "✅ Yes, I can do this! Drop it off",
-      text: "नमस्ते! हाँ, मैं यह काम खुशी से कर दूँगी। आप इसे किसी भी दिन सुबह 10 से शाम 6 बजे के बीच मेरे वर्कशॉप पर ला सकते हैं।",
-    },
-    {
-      label: "🤝 Agree to Barter Exchange",
-      text: "मुझे वस्तु-विनिमय (Barter) स्वीकार है! मैं यह काम कर दूँगा, बदले में आपके स्मार्टफोन/कंप्यूटर ज्ञान से मेरी मदद हो जाएगी।",
-    },
-    {
-      label: "📍 Share Studio Address",
-      text: `मेरा वर्कशॉप पता: ${currentUser.location.address}, ${currentUser.location.neighborhood}, ${currentUser.location.city}। कृपया आने से पहले फोन कर लें।`,
-    },
-    {
-      label: "🎪 Meet at Neighborhood Bazaar",
-      text: "क्या हम इस शनिवार को होने वाले नेबरहुड आर्टिसन बाज़ार (Bazaar) में मिल सकते हैं? वहाँ मेरा स्टॉल रहेगा।",
-    },
-    {
-      label: "📞 I will call you shortly",
-      text: "नमस्ते! मैंने आपका संदेश पढ़ लिया है। मैं 15 मिनट में आपके फोन नंबर पर कॉल करके विस्तार से बात करता हूँ।",
-    },
-  ];
+  // Senior-Friendly One-Click Quick Replies (Client vs Provider tailored)
+  const quickReplies = isMeProvider
+    ? [
+        {
+          label: "✅ Yes, I can do this! Drop it off",
+          text: "नमस्ते! हाँ, मैं यह काम खुशी से कर दूँगी। आप इसे किसी भी दिन सुबह 10 से शाम 6 बजे के बीच मेरे वर्कशॉप पर ला सकते हैं।",
+        },
+        {
+          label: "🤝 Agree to Barter Exchange",
+          text: "मुझे वस्तु-विनिमय (Barter) स्वीकार है! मैं यह काम कर दूँगा, बदले में आपके स्मार्टफोन/कंप्यूटर ज्ञान से मेरी मदद हो जाएगी।",
+        },
+        {
+          label: "📍 Share Studio Address",
+          text: `मेरा वर्कशॉप पता: ${currentUser.location.address}, ${currentUser.location.neighborhood}, ${currentUser.location.city}। कृपया आने से पहले फोन कर लें।`,
+        },
+        {
+          label: "🎪 Meet at Neighborhood Bazaar",
+          text: "क्या हम इस शनिवार को होने वाले नेबरहुड आर्टिसन बाज़ार (Bazaar) में मिल सकते हैं? वहाँ मेरा स्टॉल रहेगा।",
+        },
+        {
+          label: "📞 I will call you shortly",
+          text: "नमस्ते! मैंने आपका संदेश पढ़ लिया है। मैं 15 मिनट में आपके फोन नंबर पर कॉल करके विस्तार से बात करता हूँ।",
+        },
+      ]
+    : [
+        {
+          label: "✅ Confirming workshop visit",
+          text: "Thank you for the reply! I will bring the item over to your workshop as scheduled.",
+        },
+        {
+          label: "🤝 Agree to barter exchange",
+          text: "The barter trade works perfectly for me! Looking forward to helping with technology in exchange for your craft.",
+        },
+        {
+          label: "⏰ What time suits you best?",
+          text: "Could you please let me know what time is most convenient to visit your workshop?",
+        },
+        {
+          label: "🎪 Let's meet at the Bazaar",
+          text: "I will visit your stall at the upcoming Neighborhood Artisan Bazaar and bring the craft over!",
+        },
+        {
+          label: "📞 Please feel free to call me",
+          text: "Thank you! You can reach me on my phone if you have any questions before I arrive.",
+        },
+      ];
 
   const totalUnreadCount = conversations.reduce((acc, c) => acc + c.unreadCount, 0);
 
@@ -388,7 +415,7 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <h2 className="text-xl sm:text-2xl font-bold font-serif text-amber-100">
-                Received Client Messages & Inquiries
+                {isMeProvider ? "Received Client Messages & Inquiries" : "Artisan Messages & Craft Inquiries"}
               </h2>
               {totalUnreadCount > 0 && (
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs animate-pulse">
@@ -397,7 +424,9 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
               )}
             </div>
             <p className="text-xs sm:text-sm text-slate-400">
-              Direct inquiries, restoration requests, and barter proposals from your local community
+              {isMeProvider
+                ? "Direct inquiries, restoration requests, and barter proposals from your local community"
+                : "Direct replies, estimates, voice notes, and craft updates from neighborhood senior artisans"}
             </p>
           </div>
         </div>
@@ -427,7 +456,7 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search client, message, or craft..."
+                placeholder={isMeProvider ? "Search client, message, or craft..." : "Search artisan, message, or craft..."}
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-700/80 focus:border-amber-500 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 outline-none"
               />
               {searchQuery && (
@@ -443,7 +472,7 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
             {/* Filter Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
               {[
-                { id: "all", label: "All Inquiries", count: conversations.length },
+                { id: "all", label: isMeProvider ? "All Inquiries" : "All Messages", count: conversations.length },
                 {
                   id: "unread",
                   label: "🔴 Unread",
@@ -501,17 +530,23 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
                 <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500">
                   <MessageSquare className="w-6 h-6" />
                 </div>
-                <div className="text-sm font-bold text-slate-300">No client inquiries found</div>
+                <div className="text-sm font-bold text-slate-300">
+                  {isMeProvider ? "No client inquiries found" : "No artisan messages yet"}
+                </div>
                 <p className="text-xs text-slate-500 max-w-xs mx-auto">
                   {searchQuery
                     ? `No conversations match "${searchQuery}". Try clearing filters.`
-                    : "When clients contact you regarding your heritage craft listings, their messages appear here."}
+                    : isMeProvider
+                    ? "When clients contact you regarding your heritage craft listings, their messages appear here."
+                    : "When you contact senior artisans from the Neighbours Feed, their replies and quotes will appear here."}
                 </p>
               </div>
             ) : (
               filteredConversations.map((conv) => {
                 const isSelected = conv.id === selectedConversationId;
                 const isUnread = conv.unreadCount > 0;
+                const displayName = isMeProvider ? conv.customerName : conv.providerName;
+                const displayAvatar = isMeProvider ? conv.customerAvatar : conv.providerAvatar;
 
                 // Format timestamp
                 const msgDate = new Date(conv.lastMessageTimestamp);
@@ -532,15 +567,15 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
                   >
                     {/* Avatar */}
                     <div className="relative flex-shrink-0">
-                      {conv.customerAvatar ? (
+                      {displayAvatar ? (
                         <img
-                          src={conv.customerAvatar}
-                          alt={conv.customerName}
+                          src={displayAvatar}
+                          alt={displayName}
                           className="w-12 h-12 rounded-2xl object-cover border-2 border-amber-500/40"
                         />
                       ) : (
                         <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 font-bold">
-                          {conv.customerName.charAt(0)}
+                          {displayName.charAt(0)}
                         </div>
                       )}
                       {isUnread && (
@@ -557,7 +592,7 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
                               isSelected ? "text-amber-200" : "text-slate-200"
                             }`}
                           >
-                            {conv.customerName}
+                            {displayName}
                           </span>
                           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
                         </div>
@@ -585,7 +620,7 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
                       {/* Message Preview */}
                       <p className="text-xs text-slate-400 line-clamp-1 italic">
                         {conv.hasVoiceNote && "🎙️ Voice Note • "}
-                        {conv.lastMessage || "Client started an inquiry"}
+                        {conv.lastMessage || (isMeProvider ? "Client started an inquiry" : "Artisan replied")}
                       </p>
 
                       {/* Badges row */}
@@ -618,29 +653,29 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
         <div className="lg:col-span-7 flex flex-col bg-slate-900/40 overflow-hidden">
           {activeConversation ? (
             <>
-              {/* Client & Listing Profile Header */}
+              {/* Other Party & Listing Profile Header */}
               <div className="p-4 sm:p-5 bg-slate-950 border-b border-slate-800/90 space-y-3">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex items-center space-x-3">
-                    {activeConversation.customerAvatar ? (
+                    {(isMeProvider ? activeConversation.customerAvatar : activeConversation.providerAvatar) ? (
                       <img
-                        src={activeConversation.customerAvatar}
-                        alt={activeConversation.customerName}
+                        src={isMeProvider ? activeConversation.customerAvatar : activeConversation.providerAvatar}
+                        alt={isMeProvider ? activeConversation.customerName : activeConversation.providerName}
                         className="w-12 h-12 rounded-2xl object-cover border-2 border-amber-400"
                       />
                     ) : (
                       <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 font-bold text-lg">
-                        {activeConversation.customerName.charAt(0)}
+                        {(isMeProvider ? activeConversation.customerName : activeConversation.providerName).charAt(0)}
                       </div>
                     )}
                     <div>
                       <div className="flex items-center space-x-2">
                         <h3 className="text-base sm:text-lg font-bold text-amber-100">
-                          {activeConversation.customerName}
+                          {isMeProvider ? activeConversation.customerName : activeConversation.providerName}
                         </h3>
                         <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-[10px] font-bold flex items-center space-x-1">
                           <ShieldCheck className="w-3 h-3" />
-                          <span>Verified Neighbor</span>
+                          <span>{isMeProvider ? "Verified Neighbor" : "Senior Artisan Master"}</span>
                         </span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-0.5">
@@ -667,11 +702,11 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
                     {activeConversation.customerPhone && (
                       <a
                         href={`tel:${activeConversation.customerPhone}`}
-                        id="call-client-phone-btn"
+                        id="call-contact-phone-btn"
                         className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center space-x-1.5 shadow-md transition-all cursor-pointer"
                       >
                         <Phone className="w-4 h-4" />
-                        <span>Call Client</span>
+                        <span>{isMeProvider ? "Call Client" : "Call Artisan"}</span>
                       </a>
                     )}
 

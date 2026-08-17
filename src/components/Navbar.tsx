@@ -125,15 +125,15 @@ export const Navbar: React.FC<NavbarProps> = ({
               </button>
             )}
 
-            {onOpenMessages && currentUser && (
+            {onOpenMessages && (
               <button
                 id="portal-messages-btn"
                 onClick={onOpenMessages}
                 className="flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-base font-semibold text-amber-300 hover:text-white hover:bg-amber-500/20 transition-all cursor-pointer border border-amber-500/30 ml-1"
-                title="View Received Client Messages and Inquiries"
+                title="View Artisan & Client Messages"
               >
                 <MessageSquare className="w-4 h-4 text-amber-400" />
-                <span>Client Inquiries</span>
+                <span>{currentUser?.role === "provider" ? "Client Inquiries" : "Messages"}</span>
                 {unreadMessagesCount > 0 && (
                   <span className="px-2 py-0.2 rounded-full bg-emerald-500 text-slate-950 text-xs font-bold animate-pulse">
                     {unreadMessagesCount}

@@ -972,7 +972,7 @@ export async function deleteListing(listingId: string): Promise<void> {
 }
 
 export const SEED_MESSAGES: ChatMessage[] = [
-  // 1. Priya Sharma -> Kamala Devi (Sari Repair & Barter)
+  // 1. Priya Sharma <-> Kamala Devi (Sari Repair & Barter)
   {
     id: "msg_seed_1",
     conversationId: "conv_user_customer_priya_user_kamala",
@@ -992,7 +992,7 @@ export const SEED_MESSAGES: ChatMessage[] = [
       language: "Hindi",
     },
     timestamp: "2026-08-16T14:30:00.000Z",
-    isRead: false,
+    isRead: true,
   },
   {
     id: "msg_seed_2",
@@ -1000,12 +1000,12 @@ export const SEED_MESSAGES: ChatMessage[] = [
     senderId: "user_kamala",
     senderName: "Kamala Devi",
     senderRole: "provider",
-    originalText: "नमस्ते बेटी! ज़रूर, मैं आपकी साड़ी को बहुत प्यार और बारीक धागे से ठीक कर दूँगी। आप शनिवार सुबह 11 बजे ले आइएगा।",
-    translatedText: "Namaste dear daughter! Certainly, I will restore your sari with immense care and fine matching silk threads. Please bring it over on Saturday at 11 AM.",
+    originalText: "नमस्ते बेटी! ज़रूर, मैंने आपकी साड़ी की तस्वीरें देखीं। मैं इसे बहुत प्यार और बारीक धागे से ठीक कर दूँगी। आप शनिवार सुबह 11 बजे 22 टेम्पल बेल लेन ले आइएगा।",
+    translatedText: "Namaste dear daughter! Certainly, I will restore your heirloom sari with immense care and matching silk threads. Please bring it over on Saturday at 11 AM to 22 Temple Bell Lane.",
     sourceLanguage: "Hindi",
     targetLanguage: "English",
     timestamp: "2026-08-16T15:10:00.000Z",
-    isRead: true,
+    isRead: false,
   },
   {
     id: "msg_seed_3",
@@ -1018,10 +1018,10 @@ export const SEED_MESSAGES: ChatMessage[] = [
     sourceLanguage: "English",
     targetLanguage: "Hindi",
     timestamp: "2026-08-16T15:25:00.000Z",
-    isRead: false,
+    isRead: true,
   },
 
-  // 2. Karthik Rajan -> Kamala Devi (Urgent Zari repair)
+  // 2. Karthik Rajan <-> Kamala Devi (Urgent Zari repair)
   {
     id: "msg_seed_4",
     conversationId: "conv_user_customer_karthik_user_kamala",
@@ -1033,10 +1033,31 @@ export const SEED_MESSAGES: ChatMessage[] = [
     sourceLanguage: "Tamil",
     targetLanguage: "Hindi",
     timestamp: "2026-08-17T07:15:00.000Z",
+    isRead: true,
+  },
+  {
+    id: "msg_seed_4_reply",
+    conversationId: "conv_user_customer_karthik_user_kamala",
+    senderId: "user_kamala",
+    senderName: "Kamala Devi",
+    senderRole: "provider",
+    originalText: "வணக்கம் தம்பி! Yes, please bring the zari veshti today by 4 PM. I will weave real metallic silver/gold thread to match the vintage weave. You can pick it up on Friday afternoon.",
+    translatedText: "Namaste Karthik! Yes, please bring the zari veshti today by 4 PM. I will weave real metallic gold thread to match the vintage weave. You can pick it up on Friday afternoon.",
+    sourceLanguage: "Tamil",
+    targetLanguage: "Tamil",
+    voiceNote: {
+      id: "vn_kamala_karthik",
+      audioUrl: "",
+      durationSeconds: 14,
+      transcript: "Karthik, don't worry about the wedding deadline. I will prioritize this heirloom piece for your family ceremony.",
+      recordedAt: "2026-08-17T07:45:00.000Z",
+      language: "Tamil",
+    },
+    timestamp: "2026-08-17T07:45:00.000Z",
     isRead: false,
   },
 
-  // 3. Ananya Iyer -> Robert MacIntyre (Antique Clock Restoration)
+  // 3. Ananya Iyer <-> Robert MacIntyre (Antique Clock Restoration)
   {
     id: "msg_seed_5",
     conversationId: "conv_user_customer_ananya_user_robert",
@@ -1056,10 +1077,23 @@ export const SEED_MESSAGES: ChatMessage[] = [
       language: "English",
     },
     timestamp: "2026-08-16T18:00:00.000Z",
+    isRead: true,
+  },
+  {
+    id: "msg_seed_5_reply",
+    conversationId: "conv_user_customer_ananya_user_robert",
+    senderId: "user_robert",
+    senderName: "Robert MacIntyre",
+    senderRole: "provider",
+    originalText: "Delighted to assist, Ananya! 1940s pendulum movements are my specialty. The sourdough bread and wifi setup sounds like a wonderful trade. Drop by 14 Clockmaker's Row on Thursday afternoon.",
+    translatedText: "Delighted to assist, Ananya! 1940s pendulum movements are my specialty. The sourdough bread and wifi setup sounds like a wonderful trade. Drop by 14 Clockmaker's Row on Thursday afternoon.",
+    sourceLanguage: "English",
+    targetLanguage: "English",
+    timestamp: "2026-08-16T19:30:00.000Z",
     isRead: false,
   },
 
-  // 4. Vikram Nair -> Shanti Nambiar (Heirloom Mango Pickle & Spice Podi Order)
+  // 4. Vikram Nair <-> Shanti Nambiar (Heirloom Mango Pickle & Spice Podi Order)
   {
     id: "msg_seed_6",
     conversationId: "conv_user_customer_vikram_user_shanti",
@@ -1071,10 +1105,23 @@ export const SEED_MESSAGES: ChatMessage[] = [
     sourceLanguage: "Tamil",
     targetLanguage: "Tamil",
     timestamp: "2026-08-17T06:45:00.000Z",
+    isRead: true,
+  },
+  {
+    id: "msg_seed_6_reply",
+    conversationId: "conv_user_customer_vikram_user_shanti",
+    senderId: "user_shanti",
+    senderName: "Shanti Nambiar",
+    senderRole: "provider",
+    originalText: "வணக்கம் விக்ரம்! Yes, the Avakkai jars have finished sun-curing today with pure sesame oil and mustard seeds. I have kept 2 sealed jars aside for you at 8 Riverside Garden Road. You can collect them anytime after 5 PM.",
+    translatedText: "Namaste Vikram! Yes, the Avakkai jars have finished sun-curing today with pure sesame oil and mustard seeds. I have kept 2 sealed jars aside for you at 8 Riverside Garden Road. You can collect them anytime after 5 PM.",
+    sourceLanguage: "Tamil",
+    targetLanguage: "Tamil",
+    timestamp: "2026-08-17T08:00:00.000Z",
     isRead: false,
   },
 
-  // 5. Divya Menon -> Arun Kumar (Rosewood Kitchen Utensils)
+  // 5. Divya Menon <-> Arun Kumar (Rosewood Kitchen Utensils)
   {
     id: "msg_seed_7",
     conversationId: "conv_user_customer_divya_user_arun",
@@ -1086,10 +1133,23 @@ export const SEED_MESSAGES: ChatMessage[] = [
     sourceLanguage: "Tamil",
     targetLanguage: "Tamil",
     timestamp: "2026-08-16T20:10:00.000Z",
+    isRead: true,
+  },
+  {
+    id: "msg_seed_7_reply",
+    conversationId: "conv_user_customer_divya_user_arun",
+    senderId: "user_arun",
+    senderName: "Arun Kumar",
+    senderRole: "provider",
+    originalText: "வணக்கம் திவ்யா! I have seasoned Malabar rosewood ready in the workshop. I can hand-carve the spatulas with ergonomic grips tailored for elderly hands. Please come by tomorrow morning!",
+    translatedText: "Namaste Divya! I have seasoned Malabar rosewood ready in the workshop. I can hand-carve the spatulas with ergonomic grips tailored for elderly hands. Please come by tomorrow morning!",
+    sourceLanguage: "Tamil",
+    targetLanguage: "Tamil",
+    timestamp: "2026-08-16T21:00:00.000Z",
     isRead: false,
   },
 
-  // 6. Meera Sundaram -> Clara O'Connor (Herbal Balm & Apprenticeship)
+  // 6. Meera Sundaram <-> Clara O'Connor (Herbal Balm & Apprenticeship)
   {
     id: "msg_seed_8",
     conversationId: "conv_user_customer_meera_user_clara",
@@ -1101,6 +1161,19 @@ export const SEED_MESSAGES: ChatMessage[] = [
     sourceLanguage: "English",
     targetLanguage: "English",
     timestamp: "2026-08-17T05:20:00.000Z",
+    isRead: true,
+  },
+  {
+    id: "msg_seed_8_reply",
+    conversationId: "conv_user_customer_meera_user_clara",
+    senderId: "user_clara",
+    senderName: "Clara O'Connor",
+    senderRole: "provider",
+    originalText: "Welcome Meera! I would love to have you apprentice with me. We are harvesting lavender and eucalyptus this Wednesday morning at 9 AM at 5 Botanist Alley. See you then!",
+    translatedText: "Welcome Meera! I would love to have you apprentice with me. We are harvesting lavender and eucalyptus this Wednesday morning at 9 AM at 5 Botanist Alley. See you then!",
+    sourceLanguage: "English",
+    targetLanguage: "English",
+    timestamp: "2026-08-17T06:10:00.000Z",
     isRead: false,
   },
 ];

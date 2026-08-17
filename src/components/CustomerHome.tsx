@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Search,
   Mic,
@@ -17,13 +17,20 @@ import {
   Compass,
   Radio,
   ChevronRight,
+  MessageSquare,
+  Phone,
+  ArrowRight,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
-import { Listing, ListingCategory, GeoLocation, CustomerSearchIntent, MarketplaceEvent } from "../types";
+import { Listing, ListingCategory, GeoLocation, CustomerSearchIntent, MarketplaceEvent, User, Conversation } from "../types";
 import { filterListingsByProximity, formatDistance } from "../services/locationService";
 import { parseCustomerSearchIntent, detectLanguageWithAI } from "../services/geminiService";
 import { startVoiceRecognition, SUPPORTED_SPEECH_LANGUAGES, detectLanguageFromText } from "../services/audioService";
+import { getConversationsForUser, subscribeToMessages, getUnreadMessageCount } from "../services/storageService";
 import { ListingCard } from "./ListingCard";
 import { InteractiveMap } from "./InteractiveMap";
+import { ClientMessagesPanel } from "./ClientMessagesPanel";
 
 interface CustomerHomeProps {
   listings: Listing[];
@@ -31,11 +38,13 @@ interface CustomerHomeProps {
   onContactProvider: (listing: Listing) => void;
   onEditListing?: (listing: Listing) => void;
   currentUserId?: string;
+  currentUser?: User | null;
   largeTextMode?: boolean;
   onUpdateUserLocation?: (loc: GeoLocation) => void;
   events?: MarketplaceEvent[];
   onOpenMeetupModal?: () => void;
   onSelectEvent?: (event: MarketplaceEvent) => void;
+  onOpenMessages?: () => void;
 }
 
 export const CustomerHome: React.FC<CustomerHomeProps> = ({
@@ -44,12 +53,15 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   onContactProvider,
   onEditListing,
   currentUserId,
+  currentUser,
   largeTextMode = false,
   onUpdateUserLocation,
   events = [],
   onOpenMeetupModal,
   onSelectEvent,
+  onOpenMessages,
 }) => {
+  const [feedTab, setFeedTab] = useState<"craft_feed" | "artisan_messages">("craft_feed");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [radiusKm, setRadiusKm] = useState<number>(5);
@@ -58,6 +70,15 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [viewMode, setViewMode] = useState<"split" | "feed" | "map">("split");
   const [selectedListingForMap, setSelectedListingForMap] = useState<Listing | null>(null);
 
+  // Conversations & Provider Replies State
+  const effectiveUserId = currentUser?.id || currentUserId || "user_customer_priya";
+  const [conversations, setConversations] = useState<Conversation[]>(() =>
+    getConversationsForUser(effectiveUserId)
+  );
+  const [unreadCount, setUnreadCount] = useState<number>(() =>
+    getUnreadMessageCount(effectiveUserId)
+  );
+
   // Multilingual Speech Recognition State
   const [speechLanguage, setSpeechLanguage] = useState<string>("auto");
   const [isVoiceListening, setIsVoiceListening] = useState(false);
@@ -65,6 +86,40 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
   const [aiIntentResult, setAiIntentResult] = useState<CustomerSearchIntent | null>(null);
   const [speechRecognizer, setSpeechRecognizer] = useState<any>(null);
   const [autoDetectedLangNotice, setAutoDetectedLangNotice] = useState<string | null>(null);
+
+  // Subscribe to live messages so incoming provider replies immediately update the feed panel
+  useEffect(() => {
+    const updateConversations = () => {
+      const convs = getConversationsForUser(effectiveUserId);
+      setConversations(convs);
+      setUnreadCount(getUnreadMessageCount(effectiveUserId));
+    };
+
+    updateConversations();
+    const unsubscribe = subscribeToMessages(() => {
+      updateConversations();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [effectiveUserId]);
+
+  const effectiveUser: User = currentUser || {
+    id: "user_customer_priya",
+    fullName: "Priya Sharma",
+    phone: "+1 (555) 912-3344",
+    role: "customer",
+    preferredLanguage: "English",
+    avatarUrl: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=400&q=80",
+    location: {
+      lat: userLocation.lat || 13.0827,
+      lng: userLocation.lng || 80.2707,
+      address: "Flat 4B, Lotus Apartments, 1st Cross Rd",
+      neighborhood: "Heritage Quarter / T. Nagar",
+      city: "Metro West",
+    },
+  };
 
   // Filter listings by proximity first (Haversine formula), then apply intent/keywords
   const proximityFiltered = useMemo(() => {
@@ -227,49 +282,196 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 text-amber-50">
-      {/* Live Neighborhood Activity & Radar Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-amber-950/40 border border-amber-500/30 rounded-3xl p-4 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
-            <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
-                <span>Live Neighborhood Activity Feed</span>
+      {/* Primary Section Switcher: Neighbours Craft Feed vs Artisan Messages Panel */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950 p-2 rounded-3xl border-2 border-amber-500/40 shadow-2xl">
+        <div className="flex items-center space-x-2">
+          <button
+            id="feed-tab-crafts-btn"
+            onClick={() => setFeedTab("craft_feed")}
+            className={`flex items-center space-x-2 px-5 py-3 rounded-2xl font-bold text-sm sm:text-base transition-all cursor-pointer ${
+              feedTab === "craft_feed"
+                ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-900/40"
+                : "bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+            }`}
+          >
+            <Compass className="w-5 h-5" />
+            <span>Neighbours Craft Feed</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                feedTab === "craft_feed"
+                  ? "bg-slate-950 text-amber-300"
+                  : "bg-slate-800 text-slate-400"
+              }`}
+            >
+              {listings.length}
+            </span>
+          </button>
+
+          <button
+            id="feed-tab-messages-btn"
+            onClick={() => setFeedTab("artisan_messages")}
+            className={`flex items-center space-x-2 px-5 py-3 rounded-2xl font-bold text-sm sm:text-base transition-all cursor-pointer relative ${
+              feedTab === "artisan_messages"
+                ? "bg-amber-500 text-slate-950 shadow-lg shadow-amber-900/40"
+                : "bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800"
+            }`}
+          >
+            <MessageSquare className="w-5 h-5" />
+            <span>Artisan Messages & Inquiries</span>
+            {unreadCount > 0 ? (
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs animate-pulse">
+                {unreadCount} New
               </span>
-              <span className="text-slate-400 text-xs">• Real-time Sync Active</span>
-            </div>
-            <p className="text-xs text-slate-300">
-              Showing <span className="text-amber-300 font-bold">{listings.length} active neighbors</span> offering heritage crafts, repairs & skill swaps around you.
-            </p>
-          </div>
+            ) : (
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                  feedTab === "artisan_messages"
+                    ? "bg-slate-950 text-amber-300"
+                    : "bg-slate-800 text-slate-400"
+                }`}
+              >
+                {conversations.length}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Quick Click-to-Pin Neighbor Badges */}
-        <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1">
-          {listings.slice(0, 4).map((l) => (
-            <button
-              key={l.id}
-              onClick={() => {
-                setSelectedListingForMap(l);
-                window.scrollTo({ top: 220, behavior: "smooth" });
-              }}
-              className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 transition-all shrink-0 cursor-pointer shadow-sm hover:border-amber-400"
-            >
-              <img
-                src={l.providerAvatar || l.imageUrl}
-                alt={l.providerName}
-                className="w-5 h-5 rounded-full object-cover border border-amber-400/50"
-                referrerPolicy="no-referrer"
-              />
-              <span className="font-semibold">{l.providerName.split(" ")[0]}</span>
-              <span className="text-[10px] text-amber-300">({formatDistance(l.distanceKm)})</span>
-            </button>
-          ))}
-        </div>
+        {onOpenMeetupModal && events.length > 0 && (
+          <button
+            onClick={onOpenMeetupModal}
+            className="flex items-center space-x-2 px-4 py-2.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs sm:text-sm font-semibold transition-all cursor-pointer"
+          >
+            <span>🎪 Meetups & Bazaars ({events.length})</span>
+            <ChevronRight className="w-4 h-4 text-amber-400" />
+          </button>
+        )}
       </div>
+
+      {/* When Artisan Messages Tab is Selected: Render Dedicated Messages Panel Directly in Feed */}
+      {feedTab === "artisan_messages" ? (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between bg-slate-900/90 border border-amber-500/30 px-5 py-3.5 rounded-2xl text-xs sm:text-sm">
+            <div className="flex items-center space-x-2 text-slate-300">
+              <span className="text-amber-400 font-bold">💬 Neighbours Communication Hub:</span>
+              <span>Direct messages, estimates, and voice notes from senior service providers</span>
+            </div>
+            <button
+              onClick={() => setFeedTab("craft_feed")}
+              className="text-amber-300 hover:text-amber-200 font-bold flex items-center space-x-1 cursor-pointer"
+            >
+              <span>Back to Craft Feed</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <ClientMessagesPanel
+            currentUser={effectiveUser}
+            isEmbedded={true}
+            largeTextMode={largeTextMode}
+            onViewListing={(listingId) => {
+              setFeedTab("craft_feed");
+              const item = listings.find((l) => l.id === listingId);
+              if (item) {
+                setSelectedListingForMap(item);
+                window.scrollTo({ top: 200, behavior: "smooth" });
+              }
+            }}
+          />
+        </div>
+      ) : (
+        /* Craft Feed Content */
+        <>
+          {/* Unread Provider Reply Notification Banner (If there are replies waiting) */}
+          {unreadCount > 0 && conversations.length > 0 && (
+            <div className="bg-gradient-to-r from-emerald-950/80 via-slate-900 to-amber-950/70 border-2 border-emerald-500/50 rounded-3xl p-4 sm:p-5 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-in fade-in duration-300">
+              <div className="flex items-center space-x-3.5">
+                <div className="relative">
+                  {conversations[0].providerAvatar ? (
+                    <img
+                      src={conversations[0].providerAvatar}
+                      alt={conversations[0].providerName}
+                      className="w-12 h-12 rounded-2xl object-cover border-2 border-emerald-400"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-900/50 border border-emerald-400 flex items-center justify-center text-emerald-300 font-bold text-lg">
+                      {conversations[0].providerName.charAt(0)}
+                    </div>
+                  )}
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 border-2 border-slate-950 animate-ping" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[11px] font-black uppercase tracking-wider">
+                      Provider Reply Received
+                    </span>
+                    <span className="text-xs text-emerald-300 font-semibold">
+                      {conversations[0].providerName} sent a reply
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-200 line-clamp-1 mt-0.5 italic">
+                    {conversations[0].hasVoiceNote ? "🎙️ [Voice Note Audio Message] • " : ""}
+                    "{conversations[0].lastMessage || "I can help with your restoration request!"}"
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 self-end sm:self-center">
+                <button
+                  id="open-unread-reply-feed-btn"
+                  onClick={() => setFeedTab("artisan_messages")}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center space-x-1.5 shadow-lg shadow-emerald-950/50 cursor-pointer transition-all hover:scale-105"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>View Messages ({unreadCount} New)</span>
+                  <ArrowRight className="w-4 h-4 ml-0.5" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Live Neighborhood Activity & Radar Banner */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-amber-950/40 border border-amber-500/30 rounded-3xl p-4 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              <div className="w-9 h-9 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <Radio className="w-5 h-5 text-emerald-400 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center space-x-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                    <span>Live Neighborhood Activity Feed</span>
+                  </span>
+                  <span className="text-slate-400 text-xs">• Real-time Sync Active</span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Showing <span className="text-amber-300 font-bold">{listings.length} active neighbors</span> offering heritage crafts, repairs & skill swaps around you.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Click-to-Pin Neighbor Badges */}
+            <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1">
+              {listings.slice(0, 4).map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => {
+                    setSelectedListingForMap(l);
+                    window.scrollTo({ top: 220, behavior: "smooth" });
+                  }}
+                  className="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 transition-all shrink-0 cursor-pointer shadow-sm hover:border-amber-400"
+                >
+                  <img
+                    src={l.providerAvatar || l.imageUrl}
+                    alt={l.providerName}
+                    className="w-5 h-5 rounded-full object-cover border border-amber-400/50"
+                    referrerPolicy="no-referrer"
+                  />
+                  <span className="font-semibold">{l.providerName.split(" ")[0]}</span>
+                  <span className="text-[10px] text-amber-300">({formatDistance(l.distanceKm)})</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
       {/* Search & Multilingual Voice AI Bar */}
       <div className="bg-slate-900 border-2 border-amber-500/40 rounded-3xl p-5 sm:p-7 shadow-2xl space-y-4">
@@ -659,6 +861,8 @@ export const CustomerHome: React.FC<CustomerHomeProps> = ({
             onOpenMeetupModal={onOpenMeetupModal}
           />
         </div>
+      )}
+        </>
       )}
     </div>
   );
