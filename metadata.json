@@ -1,0 +1,7 @@
+{
+  "name": "SilverHands",
+  "description": "Hyperlocal marketplace connecting senior artisans and homemakers with local neighbors featuring multilingual AI assistance, voice notes, and proximity discovery.",
+  "requestFramePermissions": ["microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
