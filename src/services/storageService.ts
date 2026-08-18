@@ -745,6 +745,31 @@ export async function initializeFirestoreSync(): Promise<void> {
         localStorage.setItem(EVENTS_KEY, JSON.stringify(remoteEvents));
       }
     }
+
+    // 4. Messages Firestore Bootstrapping and Synchronizing
+    const messagesSnap = await getDocs(collection(db, "messages"));
+    if (messagesSnap.empty) {
+      for (const msg of SEED_MESSAGES) {
+        await setDoc(doc(db, "messages", msg.id), msg);
+      }
+      localStorage.setItem(MESSAGES_KEY, JSON.stringify(SEED_MESSAGES));
+    } else {
+      const remoteMessages: ChatMessage[] = [];
+      messagesSnap.forEach((docSnap) => {
+        remoteMessages.push(docSnap.data() as ChatMessage);
+      });
+      const local = getStoredMessages();
+      const map = new Map<string, ChatMessage>();
+      for (const m of local) map.set(m.id, m);
+      for (const m of remoteMessages) map.set(m.id, m);
+      const mergedList = Array.from(map.values()).sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      localStorage.setItem(MESSAGES_KEY, JSON.stringify(mergedList));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("silverhands_messages_updated", { detail: mergedList }));
+      }
+    }
   } catch (err) {
     console.warn("Firestore sync initialized with local persistence fallback:", err);
   }
@@ -1178,6 +1203,11 @@ export const SEED_MESSAGES: ChatMessage[] = [
   },
 ];
 
+export function buildConversationId(userIdA: string, userIdB: string): string {
+  const sorted = [userIdA, userIdB].sort();
+  return `conv_${sorted[0]}_${sorted[1]}`;
+}
+
 export function getStoredMessages(conversationId?: string): ChatMessage[] {
   try {
     const raw = localStorage.getItem(MESSAGES_KEY);
@@ -1198,10 +1228,25 @@ export function getStoredMessages(conversationId?: string): ChatMessage[] {
 }
 
 export function subscribeToMessages(callback: (messages: ChatMessage[]) => void): () => void {
-  // 1. Snapshot
+  // 1. Initial cached snapshot
   callback(getStoredMessages());
 
-  // 2. Firestore live subscription
+  // 2. BroadcastChannel for sub-millisecond zero-latency cross-tab sync
+  let channel: BroadcastChannel | null = null;
+  if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+    try {
+      channel = new BroadcastChannel("silverhands_messages_sync_channel");
+      channel.onmessage = (ev) => {
+        if (ev.data && Array.isArray(ev.data)) {
+          callback(ev.data);
+        } else {
+          callback(getStoredMessages());
+        }
+      };
+    } catch (_) {}
+  }
+
+  // 3. Firestore live subscription with non-destructive merge
   let unsubscribeFirestore = () => {};
   try {
     const q = collection(db, "messages");
@@ -1209,13 +1254,19 @@ export function subscribeToMessages(callback: (messages: ChatMessage[]) => void)
       q,
       (snapshot) => {
         if (!snapshot.empty) {
-          const list: ChatMessage[] = [];
+          const remoteList: ChatMessage[] = [];
           snapshot.forEach((docSnap) => {
-            list.push(docSnap.data() as ChatMessage);
+            remoteList.push(docSnap.data() as ChatMessage);
           });
-          list.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-          localStorage.setItem(MESSAGES_KEY, JSON.stringify(list));
-          callback(list);
+          const local = getStoredMessages();
+          const map = new Map<string, ChatMessage>();
+          for (const m of local) map.set(m.id, m);
+          for (const m of remoteList) map.set(m.id, m);
+          const merged = Array.from(map.values()).sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
+          localStorage.setItem(MESSAGES_KEY, JSON.stringify(merged));
+          callback(merged);
         }
       },
       (error) => {
@@ -1226,7 +1277,7 @@ export function subscribeToMessages(callback: (messages: ChatMessage[]) => void)
     console.warn("Could not attach Firestore messages onSnapshot:", err);
   }
 
-  // 3. Local cross-tab & custom events
+  // 4. Local cross-tab storage event & custom events
   const handleStorage = (e: StorageEvent) => {
     if (e.key === MESSAGES_KEY && e.newValue) {
       try {
@@ -1235,8 +1286,12 @@ export function subscribeToMessages(callback: (messages: ChatMessage[]) => void)
     }
   };
 
-  const handleCustom = () => {
-    callback(getStoredMessages());
+  const handleCustom = (e: any) => {
+    if (e.detail && Array.isArray(e.detail)) {
+      callback(e.detail);
+    } else {
+      callback(getStoredMessages());
+    }
   };
 
   if (typeof window !== "undefined") {
@@ -1246,6 +1301,9 @@ export function subscribeToMessages(callback: (messages: ChatMessage[]) => void)
 
   return () => {
     unsubscribeFirestore();
+    if (channel) {
+      channel.close();
+    }
     if (typeof window !== "undefined") {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("silverhands_messages_updated", handleCustom);
@@ -1261,10 +1319,18 @@ export async function saveMessage(message: ChatMessage): Promise<void> {
   } else {
     messages.push(message);
   }
+  messages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
   localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("silverhands_messages_updated", { detail: messages }));
+    if ("BroadcastChannel" in window) {
+      try {
+        const bc = new BroadcastChannel("silverhands_messages_sync_channel");
+        bc.postMessage(messages);
+        bc.close();
+      } catch (_) {}
+    }
   }
 
   // Sync to Firestore
@@ -1278,9 +1344,11 @@ export async function saveMessage(message: ChatMessage): Promise<void> {
 export async function markConversationAsRead(conversationId: string, currentUserId: string): Promise<void> {
   const messages = getStoredMessages();
   let updated = false;
+  const updatedIds: string[] = [];
   const newMessages = messages.map((m) => {
     if (m.conversationId === conversationId && m.senderId !== currentUserId && !m.isRead) {
       updated = true;
+      updatedIds.push(m.id);
       return { ...m, isRead: true };
     }
     return m;
@@ -1290,12 +1358,19 @@ export async function markConversationAsRead(conversationId: string, currentUser
     localStorage.setItem(MESSAGES_KEY, JSON.stringify(newMessages));
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("silverhands_messages_updated", { detail: newMessages }));
+      if ("BroadcastChannel" in window) {
+        try {
+          const bc = new BroadcastChannel("silverhands_messages_sync_channel");
+          bc.postMessage(newMessages);
+          bc.close();
+        } catch (_) {}
+      }
     }
 
     // Sync marked messages to Firestore
     try {
       for (const m of newMessages) {
-        if (m.conversationId === conversationId && m.senderId !== currentUserId) {
+        if (updatedIds.includes(m.id)) {
           await setDoc(doc(db, "messages", m.id), m);
         }
       }
@@ -1323,19 +1398,32 @@ export function getConversationsForUser(userId: string): Conversation[] {
     msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     const lastMsg = msgs[msgs.length - 1];
 
-    // Deduce provider & customer IDs from conversationId e.g. conv_user_customer_priya_user_kamala
-    // or from message senders
-    const participantIds = Array.from(new Set(msgs.map((m) => m.senderId)));
-    // Also parse convId components if available
-    const parts = convId.replace(/^conv_/, "").split("_user_").map((p, i) => i === 0 ? p : `user_${p}`);
+    // Check if userId is a participant in this conversation
+    const isUserParticipant =
+      msgs.some((m) => m.senderId === userId || m.recipientId === userId) ||
+      convId.includes(userId);
 
-    // If userId is in this conversation
-    const isUserParticipant = msgs.some((m) => m.senderId === userId) || convId.includes(userId);
     if (!isUserParticipant) continue;
 
-    let otherUserId = participantIds.find((id) => id !== userId);
+    // Identify the other user's ID
+    const senderIds = Array.from(new Set(msgs.map((m) => m.senderId)));
+    const recipientIds = Array.from(
+      new Set(msgs.map((m) => m.recipientId).filter(Boolean) as string[])
+    );
+    const allParticipantIds = Array.from(new Set([...senderIds, ...recipientIds]));
+
+    let otherUserId = allParticipantIds.find((id) => id !== userId);
     if (!otherUserId) {
-      otherUserId = parts.find((p) => p !== userId && p.startsWith("user_")) || parts[0];
+      // Parse from conversationId (e.g. conv_user_customer_priya_user_kamala)
+      const clean = convId.replace(/^conv_/, "");
+      // Match registered user IDs that exist in allUsers
+      const matchedUser = allUsers.find((u) => u.id !== userId && clean.includes(u.id));
+      if (matchedUser) {
+        otherUserId = matchedUser.id;
+      } else {
+        const parts = clean.split("_user_").map((p, i) => (i === 0 ? p : `user_${p}`));
+        otherUserId = parts.find((p) => p !== userId && p.startsWith("user_")) || parts[0];
+      }
     }
 
     const otherUser = allUsers.find((u) => u.id === otherUserId) || {
@@ -1360,10 +1448,12 @@ export function getConversationsForUser(userId: string): Conversation[] {
     const providerUser = isCurrentProvider ? thisUser : otherUser;
     const customerUser = isCurrentProvider ? otherUser : thisUser;
 
-    // Find any related listing for this provider
-    const relatedListing = allListings.find(
-      (l) => l.providerId === (providerUser?.id || userId)
-    ) || allListings[0];
+    // Find any related listing for this conversation
+    const listingIdFromMsg = msgs.find((m) => m.listingId)?.listingId;
+    const relatedListing =
+      (listingIdFromMsg ? allListings.find((l) => l.id === listingIdFromMsg) : null) ||
+      allListings.find((l) => l.providerId === (providerUser?.id || userId)) ||
+      allListings[0];
 
     const unreadCount = msgs.filter((m) => m.senderId !== userId && !m.isRead).length;
     const hasVoiceNote = msgs.some((m) => Boolean(m.voiceNote));

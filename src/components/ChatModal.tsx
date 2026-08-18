@@ -20,7 +20,13 @@ import { translateMessage } from "../services/geminiService";
 import { AudioRecorder, speakText } from "../services/audioService";
 import { AudioVoiceRecorder } from "./AudioVoiceRecorder";
 import { AudioPlayerButton } from "./AudioPlayerButton";
-import { getStoredMessages, saveMessage } from "../services/storageService";
+import {
+  getStoredMessages,
+  saveMessage,
+  subscribeToMessages,
+  markConversationAsRead,
+  buildConversationId,
+} from "../services/storageService";
 
 interface ChatModalProps {
   isOpen: boolean;
@@ -43,46 +49,38 @@ export const ChatModal: React.FC<ChatModalProps> = ({
   const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
-  const conversationId = `conv_${[currentUser.id, targetUser.id].sort().join("_")}`;
+  const conversationId = buildConversationId(currentUser.id, targetUser.id);
 
+  // Live Continuous Subscription to Messages (Firestore + BroadcastChannel + LocalStorage)
   useEffect(() => {
-    if (isOpen) {
-      loadMessages();
-    }
-  }, [isOpen, conversationId]);
+    if (!isOpen) return;
+
+    const updateMessages = (allMessages: ChatMessage[]) => {
+      const filtered = allMessages.filter(
+        (m) =>
+          m.conversationId === conversationId ||
+          (m.senderId === currentUser.id && m.recipientId === targetUser.id) ||
+          (m.senderId === targetUser.id && m.recipientId === currentUser.id)
+      );
+      filtered.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      setMessages(filtered);
+    };
+
+    updateMessages(getStoredMessages());
+    const unsubscribe = subscribeToMessages((all) => {
+      updateMessages(all);
+    });
+
+    markConversationAsRead(conversationId, currentUser.id);
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOpen, conversationId, currentUser.id, targetUser.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
-
-  const loadMessages = () => {
-    const stored = getStoredMessages(conversationId);
-    if (stored.length === 0) {
-      // Seed friendly welcoming starter message if starting a fresh chat
-      const initialMessage: ChatMessage = {
-        id: `msg_init_${Date.now()}`,
-        conversationId,
-        senderId: targetUser.id,
-        senderName: targetUser.fullName,
-        senderRole: "provider",
-        originalText:
-          targetUser.preferredLanguage === "Hindi"
-            ? "नमस्ते! आप मेरी हस्तकला या सेवा के बारे में कुछ भी पूछ सकते हैं।"
-            : targetUser.preferredLanguage === "Tamil"
-            ? "வணக்கம்! எனது பாரம்பரிய கைவினைப் பொருட்கள் பற்றி நீங்கள் கேட்கலாம்."
-            : "Hello neighbor! Feel free to ask about my handcrafted items or service.",
-        translatedText:
-          "Namaste & Hello! Feel free to ask me anything about my traditional craft, mending, or barter requests.",
-        sourceLanguage: targetUser.preferredLanguage || "Hindi",
-        targetLanguage: currentUser.preferredLanguage || "English",
-        timestamp: new Date().toISOString(),
-        isRead: true,
-      };
-      setMessages([initialMessage]);
-    } else {
-      setMessages(stored);
-    }
-  };
 
   const handleSendMessage = async (voiceNotePayload?: VoiceNote) => {
     const textToSend = inputText.trim();
@@ -100,19 +98,25 @@ export const ChatModal: React.FC<ChatModalProps> = ({
     if (sourceLanguage !== targetLanguage && textToSend) {
       try {
         const transResult = await translateMessage(textToSend, targetLanguage, sourceLanguage);
-        translated = transResult.translatedText;
+        if (transResult && transResult.translatedText) {
+          translated = transResult.translatedText;
+        }
       } catch (err) {
         console.error("Chat translation error:", err);
       }
     }
 
     const newMessage: ChatMessage = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       conversationId,
       senderId: currentUser.id,
       senderName: currentUser.fullName,
       senderRole: currentUser.role,
-      originalText: textToSend || (voiceNotePayload ? "🎙️ Sent a 30s Voice Note" : ""),
+      recipientId: targetUser.id,
+      recipientName: targetUser.fullName,
+      listingId: listing?.id,
+      listingTitle: listing?.titleEnglish || listing?.title,
+      originalText: textToSend || (voiceNotePayload ? "🎙️ Sent a Voice Note" : ""),
       translatedText:
         sourceLanguage !== targetLanguage && textToSend ? translated : undefined,
       sourceLanguage,
@@ -122,45 +126,73 @@ export const ChatModal: React.FC<ChatModalProps> = ({
       isRead: false,
     };
 
-    saveMessage(newMessage);
-    setMessages((prev) => [...prev, newMessage]);
+    await saveMessage(newMessage);
     setIsTranslating(false);
     setShowVoiceRecorder(false);
 
-    // If simulating conversation, senior provider replies automatically after 2s
-    if (currentUser.role === "customer" && targetUser.id.startsWith("user_")) {
+    // If demo artisan persona, simulate realistic artisan reply persisted in Firestore & Storage
+    const isDemoPersona = [
+      "user_kamala",
+      "user_robert",
+      "user_shanti",
+      "user_arun",
+      "user_clara",
+    ].includes(targetUser.id);
+
+    if (currentUser.role === "customer" && isDemoPersona) {
       setTimeout(async () => {
         const replySourceLang = targetUser.preferredLanguage || "Hindi";
-        const replyNative =
+        let replyNative =
           replySourceLang === "Hindi"
-            ? "बहुत बढ़िया! मैं आपके कपड़े की मरम्मत बहुत प्यार से कर दूँगी। आप कब आ रहे हैं?"
+            ? "नमस्ते! मैंने आपका संदेश पढ़ लिया है। मैं आपकी बहुत खुशी से मदद करूँगी। आप कब वर्कशॉप पर आ रहे हैं?"
             : replySourceLang === "Tamil"
-            ? "நிச்சயமாக! உங்கள் பொருளை சிறந்த முறையில் சரிசெய்து தருகிறேன்."
-            : "Thank you for reaching out! I'd be happy to help restore this for you.";
+            ? "வணக்கம்! உங்கள் செய்தியைப் பார்த்தேன். உங்கள் கைவினைப் பொருளை நான் அன்புடன் சரிசெய்து தருகிறேன்."
+            : `Hello ${currentUser.fullName}! Thank you for reaching out. I would be glad to help you with this craft.`;
+
+        if (voiceNotePayload) {
+          replyNative =
+            replySourceLang === "Hindi"
+              ? "नमस्ते! मैंने आपका वॉयस नोट सुन लिया है। आपकी आवाज़ सुनकर बहुत खुशी हुई। ज़रूर, मैं यह काम कर दूँगी।"
+              : replySourceLang === "Tamil"
+              ? "வணக்கம்! உங்கள் குரல் பதிவைக் கேட்டேன். மிக்க மகிழ்ச்சி, நான் நிச்சயமாக இதைச் செய்து தருகிறேன்."
+              : "Thank you for the voice note! I listened to your request and look forward to meeting you.";
+        }
 
         let replyTrans = replyNative;
-        try {
-          const autoTrans = await translateMessage(replyNative, currentUser.preferredLanguage, replySourceLang);
-          replyTrans = autoTrans.translatedText;
-        } catch (_) {}
+        if (replySourceLang !== currentUser.preferredLanguage) {
+          try {
+            const autoTrans = await translateMessage(
+              replyNative,
+              currentUser.preferredLanguage || "English",
+              replySourceLang
+            );
+            if (autoTrans && autoTrans.translatedText) {
+              replyTrans = autoTrans.translatedText;
+            }
+          } catch (_) {}
+        }
 
         const autoReply: ChatMessage = {
-          id: `msg_reply_${Date.now()}`,
+          id: `msg_reply_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           conversationId,
           senderId: targetUser.id,
           senderName: targetUser.fullName,
           senderRole: "provider",
+          recipientId: currentUser.id,
+          recipientName: currentUser.fullName,
+          listingId: listing?.id,
+          listingTitle: listing?.titleEnglish || listing?.title,
           originalText: replyNative,
-          translatedText: replyTrans,
+          translatedText:
+            replySourceLang !== currentUser.preferredLanguage ? replyTrans : undefined,
           sourceLanguage: replySourceLang,
-          targetLanguage: currentUser.preferredLanguage,
+          targetLanguage: currentUser.preferredLanguage || "English",
           timestamp: new Date().toISOString(),
-          isRead: true,
+          isRead: false,
         };
 
-        saveMessage(autoReply);
-        setMessages((prev) => [...prev, autoReply]);
-      }, 1500);
+        await saveMessage(autoReply);
+      }, 1400);
     }
   };
 
@@ -222,93 +254,107 @@ export const ChatModal: React.FC<ChatModalProps> = ({
 
         {/* Messages Stream */}
         <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-4 bg-[#0A0F1D]/80">
-          {messages.map((msg) => {
-            const isMe = msg.senderId === currentUser.id;
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-3">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 shadow-md">
+                <Sparkles className="w-7 h-7" />
+              </div>
+              <h4 className="text-base font-bold text-amber-100 font-serif">
+                Start a Conversation with {targetUser.fullName}
+              </h4>
+              <p className="text-xs text-slate-300 max-w-sm leading-relaxed">
+                Send a message or a 30s heritage voice note. All messages are automatically translated between {currentUser.preferredLanguage || "English"} and {targetUser.preferredLanguage || "Hindi"} in real time.
+              </p>
+            </div>
+          ) : (
+            messages.map((msg) => {
+              const isMe = msg.senderId === currentUser.id;
 
-            return (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
-              >
+              return (
                 <div
-                  className={`max-w-[85%] rounded-3xl p-4 shadow-lg space-y-2.5 ${
-                    isMe
-                      ? "bg-gradient-to-br from-amber-600 to-amber-700 text-slate-950 font-medium"
-                      : "bg-slate-800 border border-slate-700 text-amber-50"
-                  }`}
+                  key={msg.id}
+                  className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
                 >
-                  {/* Sender Name */}
-                  <div className="text-[11px] font-bold opacity-80 flex items-center justify-between">
-                    <span>{isMe ? "You" : msg.senderName}</span>
-                    <span className="font-mono text-[10px]">
-                      {new Date(msg.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </div>
-
-                  {/* Voice Note Attachment */}
-                  {msg.voiceNote && (
-                    <div className="pt-1">
-                      <AudioPlayerButton
-                        voiceNote={msg.voiceNote}
-                        fallbackText={msg.originalText}
-                        language={msg.sourceLanguage}
-                        size="md"
-                        label="Play Voice Message"
-                      />
+                  <div
+                    className={`max-w-[85%] rounded-3xl p-4 shadow-lg space-y-2.5 ${
+                      isMe
+                        ? "bg-gradient-to-br from-amber-600 to-amber-700 text-slate-950 font-medium"
+                        : "bg-slate-800 border border-slate-700 text-amber-50"
+                    }`}
+                  >
+                    {/* Sender Name */}
+                    <div className="text-[11px] font-bold opacity-80 flex items-center justify-between">
+                      <span>{isMe ? "You" : msg.senderName}</span>
+                      <span className="font-mono text-[10px]">
+                        {new Date(msg.timestamp).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
                     </div>
-                  )}
 
-                  {/* Original Text */}
-                  {msg.originalText && (
-                    <p className={`text-base leading-relaxed ${isMe ? "text-slate-950 font-semibold" : "text-amber-100"}`}>
-                      {msg.originalText}
-                    </p>
-                  )}
-
-                  {/* Gemini AI Translated Text Block */}
-                  {msg.translatedText && msg.translatedText !== msg.originalText && (
-                    <div
-                      className={`p-2.5 rounded-2xl text-xs space-y-1 ${
-                        isMe
-                          ? "bg-amber-800/30 border border-amber-900/40 text-slate-950"
-                          : "bg-amber-950/40 border border-amber-500/30 text-amber-200"
-                      }`}
-                    >
-                      <div className="flex items-center space-x-1.5 font-bold text-[10px] uppercase tracking-wider text-amber-400">
-                        <Sparkles className="w-3 h-3" />
-                        <span>Translated to {msg.targetLanguage}</span>
+                    {/* Voice Note Attachment */}
+                    {msg.voiceNote && (
+                      <div className="pt-1">
+                        <AudioPlayerButton
+                          voiceNote={msg.voiceNote}
+                          fallbackText={msg.originalText}
+                          language={msg.sourceLanguage}
+                          size="md"
+                          label="Play Voice Message"
+                        />
                       </div>
-                      <p className="text-sm font-normal italic">
-                        "{msg.translatedText}"
-                      </p>
-                    </div>
-                  )}
+                    )}
 
-                  {/* Text-to-Speech Button for Accessibility */}
-                  <div className="pt-1 flex items-center justify-end space-x-2">
-                    <button
-                      onClick={() =>
-                        speakText(
-                          msg.translatedText || msg.originalText,
-                          msg.targetLanguage || msg.sourceLanguage
-                        )
-                      }
-                      title="Read aloud in native voice"
-                      className={`p-1.5 rounded-full hover:bg-black/20 text-xs flex items-center space-x-1 ${
-                        isMe ? "text-slate-900" : "text-amber-300"
-                      }`}
-                    >
-                      <Volume2 className="w-4 h-4" />
-                      <span className="text-[10px] font-bold">Listen</span>
-                    </button>
+                    {/* Original Text */}
+                    {msg.originalText && (
+                      <p className={`text-base leading-relaxed ${isMe ? "text-slate-950 font-semibold" : "text-amber-100"}`}>
+                        {msg.originalText}
+                      </p>
+                    )}
+
+                    {/* Gemini AI Translated Text Block */}
+                    {msg.translatedText && msg.translatedText !== msg.originalText && (
+                      <div
+                        className={`p-2.5 rounded-2xl text-xs space-y-1 ${
+                          isMe
+                            ? "bg-amber-800/30 border border-amber-900/40 text-slate-950"
+                            : "bg-amber-950/40 border border-amber-500/30 text-amber-200"
+                        }`}
+                      >
+                        <div className="flex items-center space-x-1.5 font-bold text-[10px] uppercase tracking-wider text-amber-400">
+                          <Sparkles className="w-3 h-3" />
+                          <span>Translated to {msg.targetLanguage}</span>
+                        </div>
+                        <p className="text-sm font-normal italic">
+                          "{msg.translatedText}"
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Text-to-Speech Button for Accessibility */}
+                    <div className="pt-1 flex items-center justify-end space-x-2">
+                      <button
+                        onClick={() =>
+                          speakText(
+                            msg.translatedText || msg.originalText,
+                            msg.targetLanguage || msg.sourceLanguage
+                          )
+                        }
+                        title="Read aloud in native voice"
+                        className={`p-1.5 rounded-full hover:bg-black/20 text-xs flex items-center space-x-1 ${
+                          isMe ? "text-slate-900" : "text-amber-300"
+                        }`}
+                      >
+                        <Volume2 className="w-4 h-4" />
+                        <span className="text-[10px] font-bold">Listen</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
           <div ref={messagesEndRef} />
         </div>
 

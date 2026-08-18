@@ -97,30 +97,48 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
 
   // Subscribe to real-time messages & conversations
   useEffect(() => {
-    const unsub = subscribeToMessages(() => {
+    const loadConversations = () => {
       const userConvs = getConversationsForUser(currentUser.id);
       setConversations(userConvs);
 
-      // Auto-select first conversation if none selected
-      if (!selectedConversationId && userConvs.length > 0) {
-        setSelectedConversationId(userConvs[0].id);
-      }
+      // Auto-select first conversation or initialConversationId
+      setSelectedConversationId((prev) => {
+        if (prev && userConvs.some((c) => c.id === prev)) {
+          return prev;
+        }
+        if (initialConversationId && userConvs.some((c) => c.id === initialConversationId)) {
+          return initialConversationId;
+        }
+        return userConvs.length > 0 ? userConvs[0].id : null;
+      });
+    };
+
+    loadConversations();
+    const unsub = subscribeToMessages(() => {
+      loadConversations();
     });
 
     return () => {
       unsub();
       stopSpeech();
     };
-  }, [currentUser.id]);
+  }, [currentUser.id, initialConversationId]);
 
   // When selected conversation changes, load messages & mark as read
   useEffect(() => {
-    if (!selectedConversationId) return;
+    if (!selectedConversationId) {
+      setMessages([]);
+      return;
+    }
 
-    const convMessages = subscribeToMessages((allMsgs) => {
+    const loadThreadMessages = (allMsgs: ChatMessage[]) => {
       const filtered = allMsgs.filter((m) => m.conversationId === selectedConversationId);
       filtered.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       setMessages(filtered);
+    };
+
+    const convMessages = subscribeToMessages((allMsgs) => {
+      loadThreadMessages(allMsgs);
     });
 
     // Mark conversation as read
@@ -177,37 +195,44 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
   // Handle Send Text Message
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || replyText).trim();
-    if (!text || !selectedConversationId || !activeConversation) return;
+    if (!text || !selectedConversationId) return;
 
     setIsSending(true);
     try {
-      const otherUserId =
-        currentUser.id === activeConversation.providerId
-          ? activeConversation.customerId
-          : activeConversation.providerId;
-
-      const targetLanguage =
-        currentUser.id === activeConversation.providerId
-          ? activeConversation.customerLanguage || "English"
-          : activeConversation.providerLanguage || "Hindi";
+      const conv = activeConversation || conversations.find((c) => c.id === selectedConversationId);
+      const isSenderProvider = currentUser.role === "provider";
+      const recipientId = conv ? (isSenderProvider ? conv.customerId : conv.providerId) : undefined;
+      const recipientName = conv ? (isSenderProvider ? conv.customerName : conv.providerName) : undefined;
+      
+      const targetLanguage = conv
+        ? isSenderProvider
+          ? conv.customerLanguage || "English"
+          : conv.providerLanguage || "Hindi"
+        : "English";
 
       // Translate message for dual-language support
       let translatedText = text;
       try {
         if (replyLanguage !== targetLanguage) {
           const transResult = await translateMessage(text, targetLanguage, replyLanguage);
-          translatedText = transResult.translatedText;
+          if (transResult && transResult.translatedText) {
+            translatedText = transResult.translatedText;
+          }
         }
       } catch (err) {
         console.warn("Translation fallback notice:", err);
       }
 
       const newMsg: ChatMessage = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         conversationId: selectedConversationId,
         senderId: currentUser.id,
         senderName: currentUser.fullName,
         senderRole: currentUser.role,
+        recipientId: recipientId,
+        recipientName: recipientName,
+        listingId: conv?.listingId,
+        listingTitle: conv?.listingTitleEnglish || conv?.listingTitle,
         originalText: text,
         translatedText: translatedText !== text ? translatedText : undefined,
         sourceLanguage: replyLanguage,
@@ -218,8 +243,60 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
 
       await saveMessage(newMsg);
       setReplyText("");
-      setToastMessage("✨ Message sent to client!");
+      setToastMessage(isSenderProvider ? "✨ Message sent to client!" : "✨ Message sent to artisan!");
       setTimeout(() => setToastMessage(null), 3000);
+
+      // If client is chatting with demo artisan persona, simulate artisan response
+      const isDemoPersona =
+        recipientId &&
+        ["user_kamala", "user_robert", "user_shanti", "user_arun", "user_clara"].includes(recipientId);
+
+      if (!isSenderProvider && isDemoPersona) {
+        setTimeout(async () => {
+          const replySourceLang = conv?.providerLanguage || "Hindi";
+          let replyNative =
+            replySourceLang === "Hindi"
+              ? "नमस्ते! मैंने आपका संदेश पढ़ लिया है। मैं आपकी बहुत खुशी से मदद करूँगी। आप कब वर्कशॉप पर आ रहे हैं?"
+              : replySourceLang === "Tamil"
+              ? "வணக்கம்! உங்கள் செய்தியைப் பார்த்தேன். உங்கள் கைவினைப் பொருளை நான் அன்புடன் சரிசெய்து தருகிறேன்."
+              : `Hello ${currentUser.fullName}! Thank you for your note. I would be glad to help you with this craft.`;
+
+          let replyTrans = replyNative;
+          if (replySourceLang !== (currentUser.preferredLanguage || "English")) {
+            try {
+              const autoTrans = await translateMessage(
+                replyNative,
+                currentUser.preferredLanguage || "English",
+                replySourceLang
+              );
+              if (autoTrans && autoTrans.translatedText) {
+                replyTrans = autoTrans.translatedText;
+              }
+            } catch (_) {}
+          }
+
+          const autoReply: ChatMessage = {
+            id: `msg_reply_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            conversationId: selectedConversationId,
+            senderId: recipientId,
+            senderName: recipientName || "Artisan",
+            senderRole: "provider",
+            recipientId: currentUser.id,
+            recipientName: currentUser.fullName,
+            listingId: conv?.listingId,
+            listingTitle: conv?.listingTitleEnglish || conv?.listingTitle,
+            originalText: replyNative,
+            translatedText:
+              replySourceLang !== (currentUser.preferredLanguage || "English") ? replyTrans : undefined,
+            sourceLanguage: replySourceLang,
+            targetLanguage: currentUser.preferredLanguage || "English",
+            timestamp: new Date().toISOString(),
+            isRead: false,
+          };
+
+          await saveMessage(autoReply);
+        }, 1400);
+      }
     } catch (error) {
       console.error("Failed to send message:", error);
     } finally {
@@ -229,34 +306,41 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
 
   // Handle Voice Note Sent
   const handleSendVoiceNote = async (voiceNote: VoiceNote) => {
-    if (!selectedConversationId || !activeConversation) return;
+    if (!selectedConversationId) return;
 
-    const otherUserId =
-      currentUser.id === activeConversation.providerId
-        ? activeConversation.customerId
-        : activeConversation.providerId;
+    const conv = activeConversation || conversations.find((c) => c.id === selectedConversationId);
+    const isSenderProvider = currentUser.role === "provider";
+    const recipientId = conv ? (isSenderProvider ? conv.customerId : conv.providerId) : undefined;
+    const recipientName = conv ? (isSenderProvider ? conv.customerName : conv.providerName) : undefined;
 
-    const targetLanguage =
-      currentUser.id === activeConversation.providerId
-        ? activeConversation.customerLanguage || "English"
-        : activeConversation.providerLanguage || "Hindi";
+    const targetLanguage = conv
+      ? isSenderProvider
+        ? conv.customerLanguage || "English"
+        : conv.providerLanguage || "Hindi"
+      : "English";
 
     let translatedText = voiceNote.transcript;
     if (voiceNote.transcript && voiceNote.language !== targetLanguage) {
       try {
         const trans = await translateMessage(voiceNote.transcript, targetLanguage, voiceNote.language);
-        translatedText = trans.translatedText;
+        if (trans && trans.translatedText) {
+          translatedText = trans.translatedText;
+        }
       } catch (e) {
         console.warn("Voice note translation fallback:", e);
       }
     }
 
     const newMsg: ChatMessage = {
-      id: `msg_vn_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      id: `msg_vn_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       conversationId: selectedConversationId,
       senderId: currentUser.id,
       senderName: currentUser.fullName,
       senderRole: currentUser.role,
+      recipientId: recipientId,
+      recipientName: recipientName,
+      listingId: conv?.listingId,
+      listingTitle: conv?.listingTitleEnglish || conv?.listingTitle,
       originalText: voiceNote.transcript || "🎙️ [Voice Note Audio Message]",
       translatedText: translatedText !== voiceNote.transcript ? translatedText : undefined,
       sourceLanguage: voiceNote.language || replyLanguage,
@@ -268,8 +352,60 @@ export const ClientMessagesPanel: React.FC<ClientMessagesPanelProps> = ({
 
     await saveMessage(newMsg);
     setShowVoiceRecorder(false);
-    setToastMessage("✨ Voice note sent to client!");
+    setToastMessage(isSenderProvider ? "✨ Voice note sent to client!" : "✨ Voice note sent to artisan!");
     setTimeout(() => setToastMessage(null), 3000);
+
+    // If client is chatting with demo artisan persona, simulate artisan response
+    const isDemoPersona =
+      recipientId &&
+      ["user_kamala", "user_robert", "user_shanti", "user_arun", "user_clara"].includes(recipientId);
+
+    if (!isSenderProvider && isDemoPersona) {
+      setTimeout(async () => {
+        const replySourceLang = conv?.providerLanguage || "Hindi";
+        let replyNative =
+          replySourceLang === "Hindi"
+            ? "नमस्ते! मैंने आपका वॉयस नोट सुन लिया है। आपकी आवाज़ सुनकर बहुत खुशी हुई। ज़रूर, मैं यह काम कर दूँगी।"
+            : replySourceLang === "Tamil"
+            ? "வணக்கம்! உங்கள் குரல் பதிவைக் கேட்டேன். மிக்க மகிழ்ச்சி, நான் நிச்சயமாக இதைச் செய்து தருகிறேன்."
+            : `Thank you for the voice message, ${currentUser.fullName}! I will gladly help.`;
+
+        let replyTrans = replyNative;
+        if (replySourceLang !== (currentUser.preferredLanguage || "English")) {
+          try {
+            const autoTrans = await translateMessage(
+              replyNative,
+              currentUser.preferredLanguage || "English",
+              replySourceLang
+            );
+            if (autoTrans && autoTrans.translatedText) {
+              replyTrans = autoTrans.translatedText;
+            }
+          } catch (_) {}
+        }
+
+        const autoReply: ChatMessage = {
+          id: `msg_reply_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          conversationId: selectedConversationId,
+          senderId: recipientId,
+          senderName: recipientName || "Artisan",
+          senderRole: "provider",
+          recipientId: currentUser.id,
+          recipientName: currentUser.fullName,
+          listingId: conv?.listingId,
+          listingTitle: conv?.listingTitleEnglish || conv?.listingTitle,
+          originalText: replyNative,
+          translatedText:
+            replySourceLang !== (currentUser.preferredLanguage || "English") ? replyTrans : undefined,
+          sourceLanguage: replySourceLang,
+          targetLanguage: currentUser.preferredLanguage || "English",
+          timestamp: new Date().toISOString(),
+          isRead: false,
+        };
+
+        await saveMessage(autoReply);
+      }, 1400);
+    }
   };
 
   // Speech Recognition for input

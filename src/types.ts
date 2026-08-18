@@ -78,6 +78,10 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   senderRole: UserRole;
+  recipientId?: string;
+  recipientName?: string;
+  listingId?: string;
+  listingTitle?: string;
   originalText: string;
   translatedText?: string;
   sourceLanguage: string;
